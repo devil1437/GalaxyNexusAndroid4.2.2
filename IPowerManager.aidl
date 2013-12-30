@@ -27,6 +27,14 @@ interface IPowerManager
     // transaction numbers must not change unless IPowerManager.cpp is also updated.
     void acquireWakeLock(IBinder lock, int flags, String tag, in WorkSource ws);
     void releaseWakeLock(IBinder lock, int flags);
+    void PM_acquireWakeLock(IBinder lock, int flags, String tag, in WorkSource ws,int lockID,boolean isForeground);
+    void PM_releaseWakeLock(IBinder lock, int flags,int lockID,boolean isForeground);
+    boolean isPass(int uid);
+    void setPass(int uid, boolean pass);    
+    String getWakeMapString();
+    int addBlockedWakeLock(IBinder lock, int flags, String tag, in WorkSource ws, int uid, int pid);
+    void removeBlockedWakeLock(int key);
+    String getBlockedWakeLockString();
 
     void updateWakeLockWorkSource(IBinder lock, in WorkSource ws);
     boolean isWakeLockLevelSupported(int level);

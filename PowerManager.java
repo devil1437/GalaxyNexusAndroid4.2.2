@@ -19,6 +19,19 @@ package android.os;
 import android.content.Context;
 import android.util.Log;
 
+import java.lang.InterruptedException;
+import java.util.Calendar;
+import android.util.Slog;
+import java.text.SimpleDateFormat;
+import android.app.ActivityManager;
+import java.util.List;
+import android.app.ActivityManager.RunningAppProcessInfo;
+import java.io.File;
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.Map;
+import java.util.HashMap;
 /**
  * This class gives you control of the power state of the device.
  *
@@ -293,6 +306,11 @@ public final class PowerManager {
 	final Context mContext;
 	final IPowerManager mService;
 	final Handler mHandler;
+
+	public static String NTU_TAG = "NTU.CSIE";	
+	public static int ID_COUNT = 0;
+	public static boolean ENABLE_BLOCK = true;
+	public static boolean ENABLE_WAKELOCK_LOG = true;
 
 	/**
 	 * {@hide}
@@ -606,6 +624,51 @@ public final class PowerManager {
 	}
 
 	/**
+	 * Check the pass value of input uid,packageName. return true if the key doesn't exist.
+	 */
+	public boolean isPass(int uid){
+		try {
+			boolean pass = mService.isPass(uid);
+			return pass;
+		} catch (RemoteException e) {
+			return true;
+		}
+	}
+
+	/**
+	 * Set the pass value of input uid,packageName.
+	 */
+	public void setPass(int uid, boolean pass){
+		try {
+			mService.setPass(uid, pass);
+			mService.getWakeMapString();
+		} catch (RemoteException e) {
+		}
+	}
+
+	/**
+	 * Print the control map.
+	 */
+	public String getWakeMapString(){
+		try {
+			return mService.getWakeMapString();
+		} catch (RemoteException e) {
+		}
+		return new String("");	
+	}
+
+	/**
+	 * Print the current blocked map.
+	 */
+	public String getBlockedWakeLockString(){
+		try {
+			return mService.getBlockedWakeLockString();
+		} catch (RemoteException e) {
+		}
+		return new String("");	
+	}
+
+	/**
 	 * A wake lock is a mechanism to indicate that your application needs
 	 * to have the device stay on.
 	 * <p>
@@ -628,8 +691,12 @@ public final class PowerManager {
 		private int mCount;
 		private boolean mRefCounted = true;
 		private boolean mHeld;
+		private boolean mBlock = false;
+		private int mBlockedCount = 0;
+		private int mBlockedId = -1;
 		private WorkSource mWorkSource;
-
+		private int mLockID;
+		
 		private final Runnable mReleaser = new Runnable() {
 			public void run() {
 				release();
@@ -640,6 +707,20 @@ public final class PowerManager {
 			mFlags = flags;
 			mTag = tag;
 			mToken = new Binder();
+			
+			// Initialize the ID of wakelock
+			SimpleDateFormat sdf = new SimpleDateFormat("yyMMddHHmmssSSS");
+			Calendar c = Calendar.getInstance();
+			String tempDate = sdf.format(c.getTime());
+			mLockID = Integer.valueOf(tempDate.substring(6,15));
+			
+			// Put the new wakelock to WAKE_MAP
+			int uid = android.os.Process.myUid();
+			final String packageName = mContext.getPackageName();
+			try {
+				Slog.d(NTU_TAG, "WakeLock(). Key: " + uid + ", Value: " + mService.isPass(uid));
+			} catch (RemoteException e){
+			}
 		}
 
 		@Override
@@ -703,8 +784,139 @@ public final class PowerManager {
 				mHandler.postDelayed(mReleaser, timeout);
 			}
 		}
+		
+		/**
+		 * Check the application(tid) is foreground or not.
+		 */
+		private boolean isAppForeground(int tid) {
+			if(android.os.Process.getThreadPriority(tid) == android.os.Process.THREAD_PRIORITY_FOREGROUND)
+				return true;
+			return false;
+		}
+
+		/**
+		 * Check the application(uid) is foreground or not.
+		 */
+		private boolean isUidForeground(int uid){
+			ActivityManager activityManager = (ActivityManager) mContext.getSystemService(Context.ACTIVITY_SERVICE);
+			List<RunningAppProcessInfo> appProcesses = activityManager.getRunningAppProcesses();
+			if (appProcesses == null) {
+				return false;
+			}
+			final String packageName = mContext.getPackageName();
+			for (RunningAppProcessInfo appProcess : appProcesses) {
+				if (appProcess.importance == RunningAppProcessInfo.IMPORTANCE_FOREGROUND && appProcess.processName.equals(packageName)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/**
+		 * Return the string for profiler.
+		 */
+		private String getProfilerString(int type, int uid, int flags, int lockID, boolean isForeground, boolean refCounted){
+			SimpleDateFormat sdf = new SimpleDateFormat("yyMMddHHmmssSSS");
+			Calendar c = Calendar.getInstance();
+			String temp_date = sdf.format(c.getTime());
+			int P_type = 7;
+			String str = new String("");
+			switch(flags){
+				case 26:
+					P_type = 0;
+					break;
+				case 1:
+					P_type = 1;
+					break;
+				case 10:
+					P_type = 2;
+					break;
+				case 6:
+					P_type = 3;
+					break;
+				default:
+					P_type = -1;
+					break;
+			}
+			switch(type){
+			case 0:	
+				// Acquire
+				str = String.format("NTU.Parser PM_acquireWakeLock date %s time %s uid %d type %d id %d foreground %b RefCounted %b\n", temp_date.substring(2,6), temp_date.substring(6,15), uid, P_type, lockID, isForeground, refCounted);
+				break;
+			case 1:
+				// Release
+				str = String.format("NTU.Parser PM_releaseWakeLock date %s time %s uid %d type %d id %d foreground %b RefCounted %b\n", temp_date.substring(2,6), temp_date.substring(6,12), uid, 10, lockID, isForeground, refCounted);
+			}
+		
+			return str;
+		}
+
+		private void gotoSleep(){
+			int tid = android.os.Process.myTid();
+			int uid = android.os.Process.myUid();
+			Slog.i(NTU_TAG, "acquireLocked(). Stuck! Application Info: tid: " + tid + ", Key: " + uid + ", WS: " + mWorkSource + ", Value: false.");				
+			try{
+				Thread.sleep(5000);
+			}
+			catch(InterruptedException e){
+				Slog.e(NTU_TAG, "acquireLocked(). Sleep failed.");
+			}		
+		}
 
 		private void acquireLocked() {
+			int tid = android.os.Process.myTid();
+			int uid = android.os.Process.myUid();
+			final String packageName = mContext.getPackageName();
+			boolean isForeground = isUidForeground(uid);  // handle by app level useless now
+			
+			if (PowerManager.ENABLE_BLOCK){
+				while(true){
+					try {
+						if(mWorkSource != null && mWorkSource.size() > 0){
+							Slog.i(NTU_TAG, "acquireLocked(). WorkSource! Application Info: SourceUid: " + mWorkSource);
+							for(int i = 0; i < mWorkSource.size(); i++){
+								int tempUid = mWorkSource.get(i);
+								if(!mService.isPass(tempUid)){							
+									if(!mRefCounted && !mBlock){
+										//First Time
+										mBlockedId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
+									}
+									else if(mRefCounted && mBlockCount++ == 0){
+										mBlockedId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
+									}
+									mBlock = true;
+									return;
+									//gotoSleep();
+									//continue;
+								}
+							}	
+				
+						}
+						if(!mService.isPass(uid)){
+							if(!mRefCounted && !mBlock){
+								//First Time
+								mBlockedId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
+							}
+							else if(mRefCounted && mBlockCount++ == 0){
+								mBlockedId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
+							}
+							mBlock = true;
+                            return;
+							//gotoSleep();
+							//continue;
+						}
+						
+						Slog.i(NTU_TAG, "acquireLocked(). Pass! Application Info: tid: " + tid + ", Key: " + uid + ", WS: " + mWorkSource + ", Value: true.");
+						mBlock = false;
+						break;
+					} catch (RemoteException e){
+					}
+				}
+			}
+			
+			final String profilerStr = getProfilerString(0, uid, mFlags, mLockID, isForeground, mRefCounted);
+			Slog.i(NTU_TAG, profilerStr);
+
 			if (!mRefCounted || mCount++ == 0) {
 				// Do this even if the wake lock is already thought to be held (mHeld == true)
 				// because non-reference counted wake locks are not always properly released.
@@ -714,7 +926,9 @@ public final class PowerManager {
 				// been explicitly released by the keyguard.
 				mHandler.removeCallbacks(mReleaser);
 				try {
-					mService.acquireWakeLock(mToken, mFlags, mTag, mWorkSource);
+					// mService.acquireWakeLock(mToken, mFlags, mTag, mWorkSource);
+					Slog.i(NTU_TAG, "acquireLocked(). PM_acquireWakeLock.");
+					mService.PM_acquireWakeLock(mToken, mFlags, mTag, mWorkSource, mLockID, isForeground);
 				} catch (RemoteException e) {
 				}
 				mHeld = true;
@@ -738,7 +952,7 @@ public final class PowerManager {
 		 * <p>
 		 * This method releases your claim to the CPU or screen being on.
 		 * The screen may turn off shortly after you release the wake lock, or it may
-		 * not if there are other wake locks still held.
+		 * not if there are other wake locks still held.         
 		 * </p>
 		 *
 		 * @param flags Combination of flag values to modify the release behavior.
@@ -747,12 +961,34 @@ public final class PowerManager {
 		 * {@hide}
 		 */
 		public void release(int flags) {
+			int uid = android.os.Process.myUid();
+			int tid = android.os.Process.myTid();
+			boolean isForeground = isUidForeground(uid);  // handle by app level useless now
+			final String profilerStr = getProfilerString(1, uid, flags, mLockID, isForeground, mRefCounted);
+			Slog.i(NTU_TAG, profilerStr);
+
 			synchronized (mToken) {
+				if(!mRefCounted && mBlock){
+					try {
+						mService.removeBlockedWakeLock(mBlockedId);
+						mBlock = false;
+					} catch (RemoteException e) {
+					}
+					return;
+				}
+				else if(mRefCounted && --mBlockCount == 0){
+					try {
+						mService.removeBlockedWakeLock(mBlockedId);
+						mBlock = false;
+					} catch (RemoteException e) {
+					}
+					return;
+				}
 				if (!mRefCounted || --mCount == 0) {
 					mHandler.removeCallbacks(mReleaser);
 					if (mHeld) {
 						try {
-							mService.releaseWakeLock(mToken, flags);
+							mService.PM_releaseWakeLock(mToken, flags, mLockID , isForeground);
 						} catch (RemoteException e) {
 						}
 						mHeld = false;

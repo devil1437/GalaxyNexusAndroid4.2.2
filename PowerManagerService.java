@@ -67,15 +67,23 @@ import java.util.ArrayList;
 
 import libcore.util.Objects;
 
+import java.io.FileWriter;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.util.Calendar;
+import java.text.SimpleDateFormat;
+import java.util.Map;
+import java.util.HashMap;
 /**
  * The power manager service is responsible for coordinating power management
  * functions on the device.
  */
 public final class PowerManagerService extends IPowerManager.Stub
 implements Watchdog.Monitor {
-	private static final String TAG = "PowerManagerService";
-
-	private static final boolean DEBUG = false;
+	private static final String TAG = "PowerManagerService_Custom";
+	private static final String NTU_TAG = "NTU.CSIE";
+	
+	private static final boolean DEBUG = true;
 	private static final boolean DEBUG_SPEW = DEBUG && true;
 
 	// Message: Sent when a user activity timeout occurs to update the power state.
@@ -354,6 +362,11 @@ implements Watchdog.Monitor {
 	// Time when we last logged a warning about calling userActivity() without permission.
 	private long mLastWarningAboutUserActivityPermission = Long.MIN_VALUE;
 
+	// Block or unblock a wakelock acquisition : (String.valueOf(UID), true/false)
+	private static Map<String, Boolean> WAKE_MAP;
+	private static Map<Integer, WakeLock> BLOCKED_WAKELOCK;
+	private static Integer BLOCKED_COUNT;
+
 	private native void nativeInit();
 	private static native void nativeShutdown();
 	private static native void nativeReboot(String reason) throws IOException;
@@ -372,10 +385,86 @@ implements Watchdog.Monitor {
 			mDisplayBlanker = new DisplayBlankerImpl();
 			mHoldingWakeLockSuspendBlocker = true;
 			mWakefulness = WAKEFULNESS_AWAKE;
+			// Initialize
+			if(PowerManagerService.WAKE_MAP == null){
+				PowerManagerService.WAKE_MAP = new HashMap<String , Boolean>();
+				Slog.i(NTU_TAG, "PowerManagerService(). Initialize WAKE_MAP.");
+			}
+			if(PowerManagerService.BLOCKED_WAKELOCK == null){
+				PowerManagerService.BLOCKED_WAKELOCK = new HashMap<Integer , WakeLock>();
+				BLOCKED_COUNT = 0;
+				Slog.i(NTU_TAG, "PowerManagerService(). Initialize BLOCKED_WAKELOCK.");
+			}
 		}
 
 		nativeInit();
 		nativeSetPowerState(true, true);
+	}
+	
+	/**
+	 * Get the pass value of input uid, packageName. Return true if the key doesn't exist.
+	 */
+	public boolean isPass(int uid){
+		final String key = String.valueOf(uid);
+		
+		if(WAKE_MAP == null){
+			Slog.i(NTU_TAG, "isPass(). WAKE_MAP is null. Key: " + key);
+			WAKE_MAP = new HashMap<String, Boolean>();
+			WAKE_MAP.put(key, true);
+			return true;
+		}
+		else{
+			Slog.i(NTU_TAG, "isPass(). WAKE_MAP is not null. Key: " + key);
+			if(WAKE_MAP.containsKey(key)){
+				Slog.i(NTU_TAG, "isPass(). Key is found. Key: " + key + ", Value: " + WAKE_MAP.get(key));
+				return WAKE_MAP.get(key);
+			}
+			else{
+				Slog.i(NTU_TAG, "isPass(). Key is not found. Key: " + key);
+				WAKE_MAP.put(key, true);
+				return true;
+			}
+		}	
+	}
+
+	/**
+	 * Set the pass value of input uid, packageName.
+	 */
+	public void setPass(int uid, boolean pass){
+		synchronized (mLock) {
+			final String key = String.valueOf(uid);
+		
+			if(WAKE_MAP == null){
+				Slog.i(NTU_TAG, "setPass(). WAKE_MAP is null. Key: " + key + ", Value: " + pass);
+				WAKE_MAP = new HashMap<String, Boolean>();
+			}
+			else{
+				Slog.i(NTU_TAG, "setPass(). WAKE_MAP is not null. Key: " + key);
+				if(WAKE_MAP.containsKey(key)){
+					Slog.i(NTU_TAG, "setPass(). Key is found. Key: " + key + ", Value: " + WAKE_MAP.get(key) + ", Value(After set): " + pass);
+				}
+				else{
+					Slog.i(NTU_TAG, "setPass(). Key is not found. Key: " + key + ", Value: " + pass);
+				}
+			}
+			WAKE_MAP.put(key, pass);
+		}
+	}
+
+	/**
+	 * Print the WAKE_MAP hashmap.
+	 */
+	public String getWakeMapString(){
+		String tmp = new String("");
+
+		tmp += "Control Map: size=" + WAKE_MAP.size();
+		Slog.d(NTU_TAG, "Control Map: size=" + WAKE_MAP.size());
+
+		for(Object key: WAKE_MAP.keySet()){
+			tmp += " Key: " + key.toString() + ", Value: " + WAKE_MAP.get(key);
+			Slog.d(NTU_TAG, " Key: " + key.toString() + ", Value: " + WAKE_MAP.get(key));
+		}
+		return tmp;
 	}
 
 	/**
@@ -559,6 +648,118 @@ implements Watchdog.Monitor {
 		updateSettingsLocked();
 		updatePowerStateLocked();
 	}
+	
+	private void writeBlockedHistory(boolean add, int blockCount, WakeLock wakelock){
+		String tmp = new String("");
+		SimpleDateFormat sdf = new SimpleDateFormat("Date: yyyy/MM/dd Time: HH:mm:ss.SSS ");
+		Calendar c = Calendar.getInstance();
+		
+		tmp += sdf.format(c.getTime());
+		if(add){
+			tmp += String.format("Blocked: %d ", blockCount);	
+		}
+		else{
+			tmp += String.format("Release: %d ", blockCount);
+		}
+
+		tmp += "Wakelock: " + wakelock + " ";
+
+		Slog.i(NTU_TAG, tmp);
+	}
+
+	public int addBlockedWakeLock(IBinder lock, int flags, String tag, WorkSource ws, int uid, int pid){
+		synchronized (mLock) {
+			WakeLock wakeLock = new WakeLock(lock, flags, tag, ws, uid, pid);
+			BLOCKED_WAKELOCK.put(BLOCKED_COUNT++, wakeLock);
+			writeBlockedHistory(true, BLOCKED_COUNT-1, wakeLock);
+			return BLOCKED_COUNT-1;
+		}	
+	}
+
+	public void removeBlockedWakeLock(int key){
+		synchronized (mLock) {
+			writeBlockedHistory(false, key, BLOCKED_WAKELOCK.get(key));
+			BLOCKED_WAKELOCK.remove(new Integer(key));
+		}	
+	}
+
+	public String getBlockedWakeLockString(){
+		String tmp = new String("");
+
+		tmp += "Blocked Wake Locks: size=" + BLOCKED_WAKELOCK.size();
+		Slog.d(NTU_TAG, "Blocked Wake Locks: size=" + BLOCKED_WAKELOCK.size());
+
+		for(Object key: BLOCKED_WAKELOCK.keySet()){
+			tmp += " " + BLOCKED_WAKELOCK.get(key);
+			Slog.d(NTU_TAG, " " + BLOCKED_WAKELOCK.get(key));
+		}
+
+		return tmp;
+	}
+
+	private String getProfilerString(int type, int uid, int flags, int lockID, boolean isForeground){
+		SimpleDateFormat sdf = new SimpleDateFormat("yyMMddHHmmssSSS");
+		Calendar c = Calendar.getInstance();
+		String temp_date = sdf.format(c.getTime());
+		int P_type = 7;
+		String str = new String("");
+		switch(flags){
+			case 26:
+				P_type = 0;
+				break;
+			case 1:
+				P_type = 1;
+				break;
+			case 10:
+				P_type = 2;
+				break;
+			case 6:
+				P_type = 3;
+				break;
+			default:
+				P_type = -1;
+				break;
+		}
+		switch(type){
+		case 0:	
+			// Acquire
+			str = String.format("NTU.Parser PMS_acquireWakeLock date %s time %s uid %d type %d id %d foreground %b\n", temp_date.substring(2,6), temp_date.substring(6,15), uid, P_type, lockID, isForeground);
+			break;
+		case 1:
+			// Release
+			str = String.format("NTU.Parser PMS_releaseWakeLock date %s time %s uid %d type %d id %d foreground %b\n", temp_date.substring(2,6), temp_date.substring(6,12), uid, 10, lockID, isForeground);
+		}
+		
+		return str;
+	}
+
+	// Customize acquireWakeLock
+	@Override // Binder call
+		public void PM_acquireWakeLock(IBinder lock,int flags,String tag,WorkSource ws,int lockID,boolean isForeground){
+			if (lock == null) {
+				throw new IllegalArgumentException("lock must not be null");
+			}
+			PowerManager.validateWakeLockParameters(flags, tag);
+
+			if (ws != null && ws.size() != 0) {
+				mContext.enforceCallingOrSelfPermission(
+						android.Manifest.permission.UPDATE_DEVICE_STATS, null);
+			} else {
+				ws = null;
+			}
+
+			final int uid = Binder.getCallingUid();
+			final int pid = Binder.getCallingPid();
+			final long ident = Binder.clearCallingIdentity();
+			final String profilerStr = getProfilerString(0, uid, flags, lockID, isForeground);
+			Slog.i(NTU_TAG, profilerStr);
+			try {
+				acquireWakeLockInternal(lock, flags, tag, ws, uid, pid);
+			} finally {
+				Binder.restoreCallingIdentity(ident);
+			}
+		}
+
 
 	@Override // Binder call
 		public void acquireWakeLock(IBinder lock, int flags, String tag, WorkSource ws) {
@@ -578,6 +779,8 @@ implements Watchdog.Monitor {
 			final int uid = Binder.getCallingUid();
 			final int pid = Binder.getCallingPid();
 			final long ident = Binder.clearCallingIdentity();
+			final String profilerStr = getProfilerString(0, uid, flags, -1, false);
+			Slog.i(NTU_TAG, profilerStr);
 			try {
 				acquireWakeLockInternal(lock, flags, tag, ws, uid, pid);
 			} finally {
@@ -640,6 +843,10 @@ implements Watchdog.Monitor {
 
 	@Override // Binder call
 		public void releaseWakeLock(IBinder lock, int flags) {
+			final int uid = Binder.getCallingUid();
+			final String profilerStr = getProfilerString(1, uid, flags, -1, false);
+			Slog.i(NTU_TAG, profilerStr);
+
 			if (lock == null) {
 				throw new IllegalArgumentException("lock must not be null");
 			}
@@ -653,6 +860,28 @@ implements Watchdog.Monitor {
 				Binder.restoreCallingIdentity(ident);
 			}
 		}
+	
+	// Customize releaseWakeLock
+	@Override // Binder call
+		public void PM_releaseWakeLock(IBinder lock, int flags,int lockID,boolean isForeground) {
+			final int uid = Binder.getCallingUid();
+			final String profilerStr = getProfilerString(1, uid, flags, lockID, isForeground);
+			Slog.i(NTU_TAG, profilerStr);
+
+			if (lock == null) {
+				throw new IllegalArgumentException("lock must not be null");
+			}
+
+			mContext.enforceCallingOrSelfPermission(android.Manifest.permission.WAKE_LOCK, null);
+
+			final long ident = Binder.clearCallingIdentity();
+			try {
+				releaseWakeLockInternal(lock, flags);
+			} finally {
+				Binder.restoreCallingIdentity(ident);
+			}
+		}
+
 
 	private void releaseWakeLockInternal(IBinder lock, int flags) {
 		synchronized (mLock) {

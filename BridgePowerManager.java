@@ -43,6 +43,46 @@ public class BridgePowerManager implements IPowerManager {
             throws RemoteException {
         // pass for now.
     }
+    
+    @Override
+    public void PM_acquireWakeLock(IBinder arg0, int arg1, String arg2, WorkSource arg3, int arg4, boolean arg5)
+            throws RemoteException {
+        // pass for now.
+    }
+
+    @Override
+    public boolean isPass(int uid) throws RemoteException{
+    	// pass for now.
+	return true;
+    }
+
+    @Override
+    public void setPass(int uid, boolean pass) throws RemoteException{
+    	// pass for now.
+    }
+
+    @Override
+    public String getWakeMapString() throws RemoteException{
+    	// pass for now.
+	return null;
+    }
+
+    @Override
+    public int addBlockedWakeLock(IBinder lock, int flags, String tag, WorkSource ws, int uid, int pid) throws RemoteException{
+	// pass for now.
+    	return -1;
+    }
+
+    @Override
+    public void removeBlockedWakeLock(int key) throws RemoteException{
+    	// pass for now.
+    }
+
+    @Override
+    public String getBlockedWakeLockString() throws RemoteException{
+    	// pass for now.
+	return null;
+    }
 
     @Override
     public void crash(String arg0) throws RemoteException {
@@ -71,6 +111,11 @@ public class BridgePowerManager implements IPowerManager {
 
     @Override
     public void releaseWakeLock(IBinder arg0, int arg1) throws RemoteException {
+        // pass for now.
+    }
+
+    @Override
+    public void PM_releaseWakeLock(IBinder arg0, int arg1, int arg2, boolean arg3) throws RemoteException {
         // pass for now.
     }
 
