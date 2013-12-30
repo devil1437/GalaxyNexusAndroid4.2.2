@@ -75,7 +75,7 @@ class AlarmManagerService extends IAlarmManager.Stub {
 
     private static final String TAG = "AlarmManager";
     private static final String ClockReceiver_TAG = "ClockReceiver";
-    private static final boolean localLOGV = false;
+    private static final boolean localLOGV = true;
     private static final int ALARM_EVENT = 1;
     private static final String TIMEZONE_PROPERTY = "persist.sys.timezone";
     
@@ -480,6 +480,11 @@ class AlarmManagerService extends IAlarmManager.Stub {
         return nextAlarm;
     }
     
+	public void setShiftInterval(long interval){
+		mShiftInterval = Math.abs(interval);
+		if (localLOGV) Slog.v(TAG, "Set shift interval: " + mShiftInterval);
+	}
+
     private void setLocked(Alarm alarm)
     {
         if (mDescriptor != -1)
@@ -492,6 +497,16 @@ class AlarmManagerService extends IAlarmManager.Stub {
 			if(alarm.type == AlarmManager.RTC_WAKEUP || alarm.type == AlarmManager.ELAPSED_REALTIME_WAKEUP){
 				when = Math.max(0, when);
 				when = (when/mShiftInterval+1)*mShiftInterval;
+
+				Time time = new Time();
+                time.set(alarm.when);
+                String fromStr = time.format("%b %d %I:%M:%S %p");
+
+				time = new Time();
+                time.set(when);
+                String toStr = time.format("%b %d %I:%M:%S %p");
+
+				if (localLOGV) Slog.v(TAG, "Shift alarm:" + alarm.type + ". From: " + fromStr + ".To: " + toStr + ". " + alarm.operation.getTargetPackage());
 			}
 			
             if (when < 0) {
