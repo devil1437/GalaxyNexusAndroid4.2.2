@@ -692,8 +692,8 @@ public final class PowerManager {
 		private boolean mRefCounted = true;
 		private boolean mHeld;
 		private boolean mBlock = false;
-		private int mBlockedCount = 0;
-		private int mBlockedId = -1;
+		private int mBlockCount = 0;
+		private int mBlockId = -1;
 		private WorkSource mWorkSource;
 		private int mLockID;
 		
@@ -879,10 +879,10 @@ public final class PowerManager {
 								if(!mService.isPass(tempUid)){							
 									if(!mRefCounted && !mBlock){
 										//First Time
-										mBlockedId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
+										mBlockId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
 									}
 									else if(mRefCounted && mBlockCount++ == 0){
-										mBlockedId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
+										mBlockId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
 									}
 									mBlock = true;
 									return;
@@ -895,10 +895,10 @@ public final class PowerManager {
 						if(!mService.isPass(uid)){
 							if(!mRefCounted && !mBlock){
 								//First Time
-								mBlockedId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
+								mBlockId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
 							}
 							else if(mRefCounted && mBlockCount++ == 0){
-								mBlockedId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
+								mBlockId = mService.addBlockedWakeLock(mToken, mFlags, mTag, mWorkSource, Binder.getCallingUid(), Binder.getCallingPid());
 							}
 							mBlock = true;
                             return;
@@ -970,7 +970,7 @@ public final class PowerManager {
 			synchronized (mToken) {
 				if(!mRefCounted && mBlock){
 					try {
-						mService.removeBlockedWakeLock(mBlockedId);
+						mService.removeBlockedWakeLock(mBlockId);
 						mBlock = false;
 					} catch (RemoteException e) {
 					}
@@ -978,7 +978,7 @@ public final class PowerManager {
 				}
 				else if(mRefCounted && --mBlockCount == 0){
 					try {
-						mService.removeBlockedWakeLock(mBlockedId);
+						mService.removeBlockedWakeLock(mBlockId);
 						mBlock = false;
 					} catch (RemoteException e) {
 					}

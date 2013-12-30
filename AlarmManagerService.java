@@ -105,6 +105,7 @@ class AlarmManagerService extends IAlarmManager.Stub {
     private final ResultReceiver mResultReceiver = new ResultReceiver();
     private final PendingIntent mTimeTickSender;
     private final PendingIntent mDateChangeSender;
+	private long mShiftInterval = 60 * 1000;
 
     private static final class InFlight extends Intent {
         final PendingIntent mPendingIntent;
@@ -486,12 +487,19 @@ class AlarmManagerService extends IAlarmManager.Stub {
             // The kernel never triggers alarms with negative wakeup times
             // so we ensure they are positive.
             long alarmSeconds, alarmNanoseconds;
-            if (alarm.when < 0) {
+			long when = alarm.when;
+
+			if(alarm.type == AlarmManager.RTC_WAKEUP || alarm.type == AlarmManager.ELAPSED_REALTIME_WAKEUP){
+				when = Math.max(0, when);
+				when = (when/mShiftInterval+1)*mShiftInterval;
+			}
+			
+            if (when < 0) {
                 alarmSeconds = 0;
                 alarmNanoseconds = 0;
             } else {
-                alarmSeconds = alarm.when / 1000;
-                alarmNanoseconds = (alarm.when % 1000) * 1000 * 1000;
+                alarmSeconds = when / 1000;
+                alarmNanoseconds = (when % 1000) * 1000 * 1000;
             }
             
             set(mDescriptor, alarm.type, alarmSeconds, alarmNanoseconds);
