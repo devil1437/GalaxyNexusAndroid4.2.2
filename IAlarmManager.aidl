@@ -30,6 +30,8 @@ interface IAlarmManager {
     void setTime(long millis);
     void setTimeZone(String zone);
     void remove(in PendingIntent operation);
+	void setShiftInterval(long interval);
+	long getShiftInterval();
 }
 
 

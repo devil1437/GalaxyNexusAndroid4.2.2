@@ -302,4 +302,29 @@ public class AlarmManager
         } catch (RemoteException ex) {
         }
     }
+
+	/**
+     * Set the value of shift interval
+     *
+     * @param interval in milliseconds
+     */
+	public void setShiftInterval(long interval){
+		try {
+            mService.setShiftInterval(interval);
+        } catch (RemoteException ex) {
+        }
+	}
+
+	/**
+     * Get the value of shift interval
+     *
+     * @return interval in milliseconds
+     */
+	public long getShiftInterval(){
+		try {
+			return mService.getShiftInterval();
+		} catch (RemoteException ex) {
+        }
+		return -1;
+	}
 }

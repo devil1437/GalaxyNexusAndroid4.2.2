@@ -485,6 +485,10 @@ class AlarmManagerService extends IAlarmManager.Stub {
 		if (localLOGV) Slog.v(TAG, "Set shift interval: " + mShiftInterval);
 	}
 
+	public long getShiftInterval(){
+		return mShiftInterval;
+	}
+
     private void setLocked(Alarm alarm)
     {
         if (mDescriptor != -1)
@@ -495,18 +499,20 @@ class AlarmManagerService extends IAlarmManager.Stub {
 			long when = alarm.when;
 
 			if(alarm.type == AlarmManager.RTC_WAKEUP || alarm.type == AlarmManager.ELAPSED_REALTIME_WAKEUP){
-				when = Math.max(0, when);
-				when = (when/mShiftInterval+1)*mShiftInterval;
+				if(mShiftInterval != 0){
+					when = Math.max(0, when);
+					when = (when/mShiftInterval+1)*mShiftInterval;
 
-				Time time = new Time();
-                time.set(alarm.when);
-                String fromStr = time.format("%b %d %I:%M:%S %p");
+					Time time = new Time();
+		            time.set(alarm.when);
+		            String fromStr = time.format("%b %d %I:%M:%S %p");
 
-				time = new Time();
-                time.set(when);
-                String toStr = time.format("%b %d %I:%M:%S %p");
+					time = new Time();
+		            time.set(when);
+		            String toStr = time.format("%b %d %I:%M:%S %p");
 
-				if (localLOGV) Slog.v(TAG, "Shift alarm:" + alarm.type + ". From: " + fromStr + ".To: " + toStr + ". " + alarm.operation.getTargetPackage());
+					if (localLOGV) Slog.v(TAG, "Shift alarm:" + alarm.type + ". From: " + fromStr + ".To: " + toStr + ". " + alarm.operation.getTargetPackage());
+				}
 			}
 			
             if (when < 0) {
